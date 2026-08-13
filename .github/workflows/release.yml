@@ -1,0 +1,26 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build release package
+        shell: powershell
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          .\scripts\Package.ps1 -Version $version
+      - name: Publish GitHub release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          gh release create "${{ github.ref_name }}" ".\release\G15Backlight-$version.zip" --generate-notes --title "G15 Backlight $version"

@@ -1,0 +1,36 @@
+name: Hardware compatibility report
+description: Report a tested Dell G-series keyboard controller
+title: "[Compatibility]: "
+labels: ["hardware-compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: Please run `scripts\\Diagnose.ps1 -Json` and remove personal identifiers before posting.
+  - type: input
+    id: model
+    attributes:
+      label: Exact laptop model
+      placeholder: Dell G15 5515
+    validations:
+      required: true
+  - type: input
+    id: keyboard
+    attributes:
+      label: Keyboard type
+      placeholder: Four-zone RGB
+    validations:
+      required: true
+  - type: textarea
+    id: diagnosis
+    attributes:
+      label: Diagnosis JSON
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: results
+    attributes:
+      label: Test results
+      description: Describe colour, bright, dim, off, Fn+F5, sleep, and reboot behaviour.
+    validations:
+      required: true
