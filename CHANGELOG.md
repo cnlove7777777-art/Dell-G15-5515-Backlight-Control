@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Reopen the AlienFX HID controller after Windows resumes from sleep or hibernation, then restore the saved colour and brightness with a delayed retry.
+
 ## 0.1.0
 
 - Added direct persistent AlienFX APIv4 HID control for `VID_187C&PID_0550`.

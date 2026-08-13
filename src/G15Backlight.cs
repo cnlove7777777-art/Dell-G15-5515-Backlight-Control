@@ -9,14 +9,15 @@ using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using Microsoft.Win32;
 using Microsoft.Win32.SafeHandles;
 
 [assembly: AssemblyTitle("G15 Backlight")]
 [assembly: AssemblyDescription("Lightweight four-zone keyboard backlight control for the tested Dell G15 5515 controller")]
 [assembly: AssemblyCompany("Community project")]
 [assembly: AssemblyProduct("G15 Backlight")]
-[assembly: AssemblyVersion("0.1.0.0")]
-[assembly: AssemblyFileVersion("0.1.0.0")]
+[assembly: AssemblyVersion("0.1.1.0")]
+[assembly: AssemblyFileVersion("0.1.1.0")]
 
 internal sealed class BacklightSettings
 {
@@ -267,6 +268,29 @@ internal sealed class LightController : IDisposable
                         applied = device.Apply(snapshot);
                     }
                     result = applied ? "OK" : "HID write failed";
+                }
+                catch (Exception ex)
+                {
+                    result = ex.GetType().Name;
+                }
+            }
+            if (completed != null) completed(result);
+        });
+    }
+
+    public void ReconnectAndApply(BacklightSettings settings, Action<string> completed)
+    {
+        BacklightSettings snapshot = settings.Clone();
+        ThreadPool.QueueUserWorkItem(delegate
+        {
+            string result;
+            lock (gate)
+            {
+                try
+                {
+                    device.Dispose();
+                    device = new AlienFxHidDevice();
+                    result = device.Apply(snapshot) ? "OK" : "HID reconnect failed";
                 }
                 catch (Exception ex)
                 {
@@ -576,13 +600,18 @@ internal sealed class TrayContext : ApplicationContext
     private readonly NotifyIcon tray;
     private readonly HotkeyWindow hotkey;
     private readonly System.Windows.Forms.Timer startupTimer;
+    private readonly System.Windows.Forms.Timer resumeTimer;
     private readonly Control activationControl;
     private readonly RegisteredWaitHandle activationWait;
+    private readonly string eventLogPath;
+    private readonly object eventLogGate = new object();
+    private string reconnectReason = "startup";
     private int cycleIndex;
 
     public TrayContext(string baseDir, bool showSettings, EventWaitHandle activationEvent)
     {
         settingsPath = Path.Combine(baseDir, "settings.ini");
+        eventLogPath = Path.Combine(baseDir, "events.log");
         settings = BacklightSettings.Load(settingsPath);
         controller = new LightController();
         cycleIndex = ClosestCycle(settings.Brightness);
@@ -627,6 +656,29 @@ internal sealed class TrayContext : ApplicationContext
             controller.Apply(settings, null);
         };
         startupTimer.Start();
+
+        resumeTimer = new System.Windows.Forms.Timer();
+        resumeTimer.Interval = 1800;
+        resumeTimer.Tick += delegate
+        {
+            resumeTimer.Stop();
+            controller.ReconnectAndApply(settings, delegate(string result)
+            {
+                LogEvent("Reconnect (" + reconnectReason + "): " + result);
+                if (result != "OK")
+                {
+                    if (!activationControl.IsDisposed)
+                        activationControl.BeginInvoke(new Action(delegate
+                        {
+                            resumeTimer.Interval = 6000;
+                            resumeTimer.Start();
+                        }));
+                }
+            });
+        };
+        SystemEvents.PowerModeChanged += OnPowerModeChanged;
+        SystemEvents.SessionSwitch += OnSessionSwitch;
+
         controller.Apply(settings, null);
         if (showSettings) OpenSettings();
     }
@@ -686,9 +738,50 @@ internal sealed class TrayContext : ApplicationContext
         controller.Apply(settings, null);
     }
 
+    private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e)
+    {
+        if (e.Mode != PowerModes.Resume) return;
+        ScheduleReconnect("power resume");
+    }
+
+    private void OnSessionSwitch(object sender, SessionSwitchEventArgs e)
+    {
+        if (e.Reason != SessionSwitchReason.SessionUnlock) return;
+        ScheduleReconnect("session unlock");
+    }
+
+    private void ScheduleReconnect(string reason)
+    {
+        reconnectReason = reason;
+        LogEvent("Detected " + reason);
+        resumeTimer.Stop();
+        resumeTimer.Interval = 1800;
+        resumeTimer.Start();
+    }
+
+    private void LogEvent(string message)
+    {
+        try
+        {
+            lock (eventLogGate)
+            {
+                if (File.Exists(eventLogPath) && new FileInfo(eventLogPath).Length > 65536)
+                    File.Delete(eventLogPath);
+                File.AppendAllText(eventLogPath,
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) +
+                    " " + message + Environment.NewLine,
+                    Encoding.UTF8);
+            }
+        }
+        catch { }
+    }
+
     private void ExitApp()
     {
         startupTimer.Stop();
+        resumeTimer.Stop();
+        SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+        SystemEvents.SessionSwitch -= OnSessionSwitch;
         activationWait.Unregister(null);
         activationControl.Dispose();
         hotkey.Dispose();

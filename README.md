@@ -58,6 +58,7 @@ The cleanup helper does not force-delete services, drivers, registry keys, or fo
 - Start `G15Backlight.exe` again: ask the existing tray instance to open settings
 
 At logon, the app applies the saved state immediately and retries after 12 seconds in case the HID stack was not ready yet.
+After sleep or hibernation, it reopens the HID device on power-resume or session-unlock and restores the saved state. Recovery results are recorded in `%LOCALAPPDATA%\G15Backlight\events.log`.
 
 ## Build
 
